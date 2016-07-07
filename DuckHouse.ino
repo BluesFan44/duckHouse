@@ -15,9 +15,13 @@
 // LCD Column -- must be 12 or 13
 #define LCD_START_COLUMN 13
 // Loop delay
-#define LOOP_DELAY 10000
+#define LOOP_DELAY 6000
+
+// Relay demo pin
+#define RELAY_PIN 4
 
 int samples[NUMSAMPLES];
+int fakeBoolean;
 
 // include the library code:
 #include <LiquidCrystal.h>
@@ -38,15 +42,39 @@ void setup() {
 	// start the Thermister
 	Serial.begin(9600);
 	analogReference(EXTERNAL);
+	fakeBoolean = 0;
+	pinMode(RELAY_PIN, OUTPUT);
+	digitalWrite(RELAY_PIN, 1);
 }
 
 void loop() {
+	//Serial.println(fakeBoolean);
 	int interiorTemperature, exteriorTemperature;
 	interiorTemperature = readTemperature(THERMISTOR_INTERIOR_PIN);
 	exteriorTemperature = readTemperature(THERMISTOR_EXTERIOR_PIN);
-	LCDTemperature(interiorTemperature, exteriorTemperature);
-	Serial.println();
+	displayLCDTemperature(interiorTemperature, exteriorTemperature);
+	//Serial.println(interiorTemperature);
+	//digitalWrite(RELAY_PIN, fakeBoolean++);
+	//if (fakeBoolean == 2) fakeBoolean = 0;
 	delay(LOOP_DELAY);
+}
+
+int displayLCDTemperature(int intTemp, int extTemp) {
+	lcd.setCursor(LCD_START_COLUMN - 3, 0);
+	lcd.print("  ");
+	lcd.setCursor(LCD_START_COLUMN - 3, 1);
+	lcd.print("  ");
+	lcd.setCursor(getTempLCDPosition(intTemp), 0);
+	lcd.print((String)intTemp);
+	lcd.setCursor(getTempLCDPosition(extTemp), 1);
+	lcd.print((String)extTemp);
+}
+
+int getTempLCDPosition(int temp) {
+	String strTemp;
+	strTemp = (String)temp;
+
+	return LCD_START_COLUMN-strTemp.length();
 }
 
 float getTempFromResistance(float resistance) {
@@ -61,16 +89,6 @@ float getTempFromResistance(float resistance) {
 	return steinhart;
 }
 
-int LCDTemperature(int intTemp, int extTemp) {
-	lcd.setCursor(LCD_START_COLUMN - 3, 0);
-	lcd.print("  ");
-	lcd.setCursor(LCD_START_COLUMN - 3, 1);
-	lcd.print("  ");
-	lcd.setCursor(getTempLCDPosition(intTemp), 0);
-	lcd.print((String)intTemp);
-	lcd.setCursor(getTempLCDPosition(extTemp), 1);
-	lcd.print((String)extTemp);
-}
 
 int readTemperature(uint8_t pin) {
 	float resistance, average, temperature;
@@ -93,11 +111,4 @@ int readTemperature(uint8_t pin) {
 	temperature = getTempFromResistance(resistance);
 
   return (int)temperature;
-}
-
-int getTempLCDPosition(int temp) {
-	String strTemp;
-	strTemp = (String)temp;
-
-	return LCD_START_COLUMN-strTemp.length();
 }
