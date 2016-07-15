@@ -1,8 +1,21 @@
-// which analog pin to connect
+// include the library code:
+#include <Servo.h>
+#include <TimerOne.h>
+#include <LiquidCrystal.h>
+
+// Pin Assignments
+#define PHOTO_PIN A1
 #define THERMISTOR_INTERIOR_PIN A3
 #define THERMISTOR_EXTERIOR_PIN A4
+
+#define FAN_PIN 11
+#define DOOR_DN_PIN 12
+#define DOOR_UP_PIN 13
+#define DOOR_BUTTON_PIN 10
+
+// which analog pin to connect
 // resistance at 25 degrees C
-#define THERMISTORNOMINAL 50000
+#define THERMISTORNOMINAL 10000
 // temp. for nominal resistance (almost always 25 C)
 #define TEMPERATURENOMINAL 25
 // how many samples to take and average, more takes longer
@@ -13,99 +26,100 @@
 // the value of the 'other' resistor
 #define SERIESRESISTOR 10000
 // LCD Column -- must be 12 or 13
-#define LCD_START_COLUMN 7
+#define LCD_INT_COLUMN 7
+#define LCD_EXT_COLUMN 19
 #define VOLTAGE_POSITION 10
 // Loop delay
 #define LOOP_DELAY 500
 // Relay pins
-#define DOOR_UP_PIN 13
-#define DOOR_DN_PIN 10
-#define FAN_PIN 8
 // Photoresistor pin
-#define PHOTO_PIN A1
 // Button Pin
-#define BUTTON_PIN 7
+#define DEBOUNCE_DELAY 1000
 // Light level at which door goes up
-#define LIGHT_THRESHHOLD 300
+#define LIGHT_THRESHHOLD 100
 // Turn fan on at fahernheit temp
 #define TEMP_THRESHHOLD 78
 #define UP true
 #define DOWN false
-
-
+//#define SERVO_PIN 6
+#define TIMER_MICROSECONDS 5000000
 
 boolean doorDirection; // true=down, false=up
 boolean isFanOn = false, isDoorUp = false, isDaylight=true, doorlock=false;
-int buttonState, samples[NUMSAMPLES], interiorTemperature, exteriorTemperature;
-float steinhart, resistance, average, temperature;
+int buttonState = LOW, samples[NUMSAMPLES], interiorTemperature, exteriorTemperature;
+float steinhart, resistance, average, temperature, light;
+//Servo myServo;
+long lastDebounceTime = 0;
 
-// include the library code:
-#include <LiquidCrystal.h>
-//#include <timer.h>
 // initialize the library with the numbers of the interface pins
-LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+LiquidCrystal lcd(7, 6, 2, 3, 4, 5);
 
 void setup() {
+	Timer1.initialize(TIMER_MICROSECONDS);
+	Timer1.attachInterrupt(printDebug);
+	/*myServo.attach(SERVO_PIN);
+	myServo.write(100);*/
 	// set up the LCD
-	lcd.begin(16, 2);
+	lcd.begin(20, 4);
 	// start the Thermister
 	Serial.begin(9600);
 	analogReference(EXTERNAL);
 	pinMode(DOOR_UP_PIN, OUTPUT); 
 	pinMode(DOOR_DN_PIN, OUTPUT);
 	pinMode(FAN_PIN, OUTPUT);
-	pinMode(BUTTON_PIN, INPUT);
+	pinMode(DOOR_BUTTON_PIN, INPUT);   
 	fanOff();
+	printDebug();
 }
 
 void loop() {
 	interiorTemperature = readTemperature(THERMISTOR_INTERIOR_PIN);
 	exteriorTemperature = readTemperature(THERMISTOR_EXTERIOR_PIN);
-	displayLCD(interiorTemperature, exteriorTemperature);
 	isDaylight = getDaylight();
 	if (!isDaylight) 
 		doorlock = false;
-	getButton(BUTTON_PIN);
+	getButton(DOOR_BUTTON_PIN);
 	//voltage = getVoltage();
-	printDebug();
 	if ((isDaylight) && !isDoorUp && !doorlock)
 		doorMove(UP);
 	if ((interiorTemperature > TEMP_THRESHHOLD) && !isFanOn)
 		fanOn();
 	else if ((interiorTemperature < TEMP_THRESHHOLD) && isFanOn)
 		fanOff();
-
-	delay(LOOP_DELAY);
 }
 
 int displayLCD(int intTemp, int extTemp) {
 	lcd.setCursor(0,0);
-	lcd.print("Int:"); 
-	lcd.setCursor(LCD_START_COLUMN, 0);
+	lcd.print("Int:   "); 
 	lcd.print((char)223);
-	lcd.setCursor(0, 1);
-	lcd.print("Ext:");
-	lcd.setCursor(LCD_START_COLUMN, 1);
+	lcd.print("    Ext:   ");
 	lcd.print((char)223);
-	lcd.setCursor(LCD_START_COLUMN - 3, 0);
-	lcd.print("  ");
-	lcd.setCursor(LCD_START_COLUMN - 3, 1);
-	lcd.print("  ");
-	lcd.setCursor(getTempLCDPosition(intTemp), 0);
+	lcd.setCursor(LCD_INT_COLUMN - 3, 0);
+	lcd.print("   ");
+	lcd.setCursor(LCD_EXT_COLUMN - 3, 3);
+	lcd.print("   ");
+	lcd.setCursor(0, 2);
+	if (isDoorUp)
+		lcd.print("Door is up  ");
+	else
+		lcd.print("Door is down");
+	lcd.setCursor(0, 3);
+	if (isFanOn)
+		lcd.print("Fan is on ");
+	else
+		lcd.print("Fan is off");
+	lcd.setCursor(getTempLCDPosition(intTemp, LCD_INT_COLUMN), 0);
 	lcd.print((String)intTemp);
-	lcd.setCursor(getTempLCDPosition(extTemp), 1);
+	lcd.setCursor(getTempLCDPosition(extTemp, LCD_EXT_COLUMN), 0);
 	lcd.print((String)extTemp);
-	/*lcd.setCursor(VOLTAGE_POSITION, 0);
-	lcd.print("Volts");
-	lcd.setCursor(11, 1);
-	lcd.print((String)voltage);*/
+	
 }
 
-int getTempLCDPosition(int temp) {
+int getTempLCDPosition(int temp, int offset) {
 	String strTemp;
 	strTemp = (String)temp;
 
-	return LCD_START_COLUMN-strTemp.length();
+	return offset-strTemp.length();
 }
 
 float getTempFromResistance(float resistance) {
@@ -142,53 +156,47 @@ int readTemperature(uint8_t pin) {
   return (int)temperature;
 }
 
-//float getVoltage()
-//{	int sample_count = 0;
-//	int sum = 0;
-//	// take a number of analog samples and add them up
-//	while (sample_count < NUMSAMPLES) {
-//		sum += analogRead(A2);
-//		sample_count++;
-//		delay(10);
-//	}
-//	// calculate the voltage
-//	// use 5.0 for a 5.0V ADC reference voltage
-//	// 5.015V is the calibrated reference voltage
-//	voltage = ((float)sum / (float)NUMSAMPLES * 5.015) / 1024.0;
-//	// send voltage for display on Serial Monitor
-//	// voltage multiplied by 11 when using voltage divider that
-//	// divides by 11. 11.132 is the calibrated voltage divide
-//	// value
-//	Serial.print(voltage);
-//	Serial.println(" V");
-//
-//}
-
 void printDebug() {
 	Serial.println("Interior=" + (String)interiorTemperature);
 	Serial.println("Exterior=" + (String)exteriorTemperature);
-	Serial.println("Door direction=" + trueFalse(doorDirection));
-	Serial.println("Daylight=" + trueFalse(isDaylight));
+	//Serial.println("Door direction=" + trueFalse(doorDirection));
+	//Serial.println("Light Value=" + (String)light);
+	//Serial.println("Daylight=" + trueFalse(isDaylight));
 	Serial.println("doorIsUp=" + trueFalse(isDoorUp));
-	Serial.println("doorLock=" + trueFalse(doorlock));
+	//Serial.println("doorLock=" + trueFalse(doorlock));
+	displayLCD(interiorTemperature, exteriorTemperature);
 	Serial.println("");
 }
 
 void getButton(uint8_t pin) {
 	buttonState = digitalRead(pin);
-	if (buttonState == HIGH) {
-		Serial.println("Button Down");
-		doorMove();
-		delay(3000);
-		doorStop();
+		if (buttonState == HIGH)	Serial.println("Button Down");
+
+	//filter out any noise by setting a time buffer
+	if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
+		//printDebug();
+		//if the button has been pressed, lets toggle the LED from "off to on" or "on to off"
+
+		if (buttonState == HIGH) {
+			doorMove();
+			delay(3000);
+			doorStop();
+		}
+	//printDebug();
 	}
 }
 
 void doorStop() {
+	//int i;if (doorDirection)
+	//	i = 160;
+	//else
+	//	i = 20;
+	//myServo.write(i);
 	digitalWrite(DOOR_UP_PIN, HIGH);
 	digitalWrite(DOOR_DN_PIN, HIGH);
 	Serial.println("Door Stop");
-
+	printDebug();
+	
 	doorDirection = !doorDirection;
 }
 
@@ -198,9 +206,8 @@ void doorMove() {
 	isDoorUp = doorDirection;
 	doorlock = (!isDoorUp && isDaylight);
 	Serial.println("Door Moving: " + (String)((doorDirection) ? "Up" : "Down"));
+
 }
-
-
 
 void doorMove(boolean direction) {
 	doorDirection = direction;
@@ -222,19 +229,21 @@ boolean getDaylight() {
 	for (i = 0; i < NUMSAMPLES; i++) 
 		average += samples[i];
 	average /= NUMSAMPLES; 
-	Serial.println("Light Value=" + (String)average);
+	light = average;
 	return (average >= LIGHT_THRESHHOLD);
 }
 
 void fanOn() {
 	digitalWrite(FAN_PIN, false);
 	isFanOn = true;
+	printDebug();
 	Serial.println("Fan On");
 }
 
 void fanOff() {
 	digitalWrite(FAN_PIN, true);
 	isFanOn = false;
+	printDebug();
 	Serial.println("Fan Off");
 }
 
