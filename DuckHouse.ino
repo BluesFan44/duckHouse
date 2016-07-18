@@ -1,5 +1,5 @@
-// include the library code:
-//#include <Multiplex.h>
+//#include <DuckHouseConstants.h>
+#include <Multiplexer.h>
 //#include <Servo.h>
 #include <TimerOne.h>
 #include <LiquidCrystal.h>
@@ -8,13 +8,11 @@
 #define PHOTO_PIN A1
 #define THERMISTOR_INTERIOR_PIN A3
 #define THERMISTOR_EXTERIOR_PIN A4
-
 #define FAN_PIN 11
 //#define DOOR_DN_PIN 12
 //#define DOOR_UP_PIN 13
 //#define DOOR_BUTTON_PIN 10
-
-#define LCD_BACKLIGHT_BUTTON_PIN 10
+//#define LCD_BACKLIGHT_BUTTON_PIN 10
 #define LCD_BACKLIGHT_PIN 7
 
 // which analog pin to connect
@@ -35,10 +33,7 @@
 //#define VOLTAGE_POSITION 10
 // Loop delay
 #define LOOP_DELAY 500
-// Relay pins
-// Photoresistor pin
-// Button Pin
-#define DEBOUNCE_DELAY 10
+
 // Light level at which door goes up
 #define LIGHT_THRESHHOLD 100
 // Turn fan on at fahernheit temp
@@ -48,38 +43,10 @@
 //#define SERVO_PIN 6
 #define TIMER_MICROSECONDS 60000000
 
-
-
-/* How many shift register chips are daisy-chained.
-*/
-#define NUMBER_OF_SHIFT_CHIPS   1
-
-/* Width of data (how many ext lines).
-*/
-#define DATA_WIDTH   NUMBER_OF_SHIFT_CHIPS * 8
-
-/* Width of pulse to trigger the shift register to read and latch.
-*/
-#define PULSE_WIDTH_USEC   5
-
-/* Optional delay between shift register reads.
-*/
-#define POLL_DELAY_MSEC   1
-
-/* You will need to change the "int" to "long" If the
-* NUMBER_OF_SHIFT_CHIPS is higher than 2.
-*/
 #define BYTES_VAL_T unsigned int
 
-int ploadPin = 10;  // Connects to Parallel load pin the 165
-int clockEnablePin = 11;  // Connects to Clock Enable pin the 165
-int dataPin = 12; // Connects to the Q7 pin the 165
-int clockPin = 13; // Connects to the Clock pin the 165
-
-BYTES_VAL_T pinValues;
+BYTES_VAL_T pinValue;
 BYTES_VAL_T oldPinValues;
-
-//Multiplex multiplex(10, 11, 12, 13);
 
 boolean doorDirection; // true=down, false=up
 boolean isFanOn = false, isDoorUp = false, isDaylight = true, doorlock = false;
@@ -92,10 +59,10 @@ TimerOne timer1;
 // initialize the library with the numbers of the interface pins
 LiquidCrystal lcd(7, 6, 2, 3, 4, 5);
 
+Multiplexer multi(10, 11, 12, 13);
 
 void setup() {
 	Serial.begin(9600);
-	multiplexSetup();
 	timer1.initialize(TIMER_MICROSECONDS);
 	timer1.disablePwm(9);
 	timer1.disablePwm(10);
@@ -108,26 +75,24 @@ void setup() {
 	//pinMode(DOOR_UP_PIN, OUTPUT); 
 	//pinMode(DOOR_DN_PIN, OUTPUT);
 	pinMode(LCD_BACKLIGHT_PIN, OUTPUT);
-	pinMode(FAN_PIN, OUTPUT);
+	//pinMode(FAN_PIN, OUTPUT);
 	//pinMode(DOOR_BUTTON_PIN, INPUT);   
-	fanOff();
+	//fanOff();
 	printDebug();
 }
 
 void loop() {/* Read the state of all zones.
 	*/
-	pinValues = read_shift_regs();
+	pinValue = multi.read_shift_regs();
 
 	/* If there was a chage in state, display which ones changed.
 	*/
-	if (pinValues != oldPinValues)
+	if (pinValue != oldPinValues)
 	{
-		Serial.print("*Pin value change detected*\r\n");
-		display_pin_values();
-		oldPinValues = pinValues;
+		Serial.print("*Pin value change detected* \r\n");
+		multi.display_pin_values();
+		oldPinValues = pinValue;
 	}
-
-	delay(POLL_DELAY_MSEC);
 
 	interiorTemperature = readTemperature(THERMISTOR_INTERIOR_PIN);
 	exteriorTemperature = readTemperature(THERMISTOR_EXTERIOR_PIN);
@@ -289,7 +254,7 @@ void doorMove() {
 void doorMove(boolean direction) {
 	doorDirection = direction;
 	doorMove();
-	delay(3000);
+	delay(500);
 	doorStop();
 }
 
@@ -340,80 +305,4 @@ void backlightOff() {
 
 String trueFalse(boolean i) {
 	return (i == 0) ? "False" : "True";
-}
-
-BYTES_VAL_T read_shift_regs()
-{
-	long bitVal;
-	BYTES_VAL_T bytesVal = 0;
-
-	/* Trigger a parallel Load to latch the state of the data lines,
-	*/
-	digitalWrite(clockEnablePin, HIGH);
-	digitalWrite(ploadPin, LOW);
-	delayMicroseconds(PULSE_WIDTH_USEC);
-	digitalWrite(ploadPin, HIGH);
-	digitalWrite(clockEnablePin, LOW);
-
-	/* Loop to read each bit value from the serial out line
-	* of the SN74HC165N.
-	*/
-	for (int i = 0; i < DATA_WIDTH; i++)
-	{
-		bitVal = digitalRead(dataPin);
-
-		/* Set the corresponding bit in bytesVal.
-		*/
-		bytesVal |= (bitVal << ((DATA_WIDTH - 1) - i));
-
-		/* Pulse the Clock (rising edge shifts the next bit).
-		*/
-		digitalWrite(clockPin, HIGH);
-		delayMicroseconds(PULSE_WIDTH_USEC);
-		digitalWrite(clockPin, LOW);
-	}
-
-	return(bytesVal);
-}
-
-void display_pin_values()
-{
-	Serial.print("Pin States:\r\n");
-
-	for (int i = 0; i < DATA_WIDTH; i++)
-	{
-		Serial.print("  Pin-");
-		Serial.print(i);
-		Serial.print(": ");
-
-		if ((pinValues >> i) & 1)
-			Serial.print("HIGH");
-		else
-			Serial.print("LOW");
-
-		Serial.print("\r\n");
-	}
-
-	Serial.print("\r\n");
-}
-
-void multiplexSetup()
-{
-	Serial.begin(9600);
-
-	/* Initialize our digital pins...
-	*/
-	pinMode(ploadPin, OUTPUT);
-	pinMode(clockEnablePin, OUTPUT);
-	pinMode(clockPin, OUTPUT);
-	pinMode(dataPin, INPUT);
-
-	digitalWrite(clockPin, LOW);
-	digitalWrite(ploadPin, HIGH);
-
-	/* Read in and display the pin states at startup.
-	*/
-	pinValues = read_shift_regs();
-	display_pin_values();
-	oldPinValues = pinValues;
 }
