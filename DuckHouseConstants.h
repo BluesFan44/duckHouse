@@ -41,9 +41,9 @@
 #define UP true
 #define DOWN false
 //#define SERVO_PIN 6
-#define TIMER_MICROSECONDS 60000000
+#define DEBUG_TIMER_MICROSECONDS 60000000
 
 #define BYTES_VAL_T unsigned int
 
-BYTES_VAL_T pinValue;
+BYTES_VAL_T buttonPressed;
 BYTES_VAL_T oldPinValues;
