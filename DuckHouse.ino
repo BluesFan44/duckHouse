@@ -16,15 +16,15 @@
 #define THERMISTOR_EXTERIOR_PIN A3
 
 // Button Value Assignments
-#define DOOR_UP_BUTTON 4
-#define DOOR_DN_BUTTON 3
-#define BACKLIGHT_BUTTON 2
-#define FAN_BUTTON 1
+#define DOOR_MOVE_BUTTON 1
+#define DOOR_UPPER_LIMIT_BUTTON 2
+#define DOOR_LOWER_LIMIT_BUTTON 3
+#define FAN_BUTTON 4
 #define INTERIOR_LIGHT_BUTTON 8
+//#define BACKLIGHT_BUTTON 7
 
-//// Constants
-// resistance at 25 degrees C
-#define THERMISTORNOMINAL 10000
+// Constants 
+#define THERMISTORNOMINAL 10000 //resistance at 25 degrees C
 // temp. for nominal resistance (almost always 25 C)
 #define TEMPERATURENOMINAL 25
 // how many samples to take and average, more takes longer
@@ -40,7 +40,6 @@
 #define TEMP_THRESHHOLD 80
 #define UP true
 #define DOWN false
-//#define SERVO_PIN 6
 #define DEBUG_TIMER_MICROSECONDS 10000000
 #define BYTES_VAL_T unsigned int
  //LCD Column -- must be 12 or 13
@@ -58,11 +57,13 @@
 #define BACKLIGHT_ON_TIME 2
 
 // Global Variables
-boolean doorDirection,
-isFanOn = false,
+boolean isFanOn = false,
 isBacklightOn = false,
 isInteriorLightOn = false,
 isDoorUp = false,
+isDoorDown = true,
+isDoorMoving = false,
+doorDirection = UP,
 isDaylight = true,
 doorLock = false,
 fanLock = false,
@@ -137,26 +138,31 @@ void onTimer() { // just set the flag for the next loop() iteration
 }
 
 void processButton(int button) {
-		Serial.println("Button " + (String)button);
+	Serial.println("Button " + (String)button);
+	backlightOn();
 	switch (button) {
-	case DOOR_UP_BUTTON:
+	case DOOR_MOVE_BUTTON:
 		Serial.println("Door Up Button");
-		isDoorUp = true;
-		doorLock = false;
-		backlightOn();
-		break;
-	case DOOR_DN_BUTTON:
-		Serial.println("Door Down Button");
-		isDoorUp = false;
-		doorLock = true;
-		backlightOn();
-		break;
-	case BACKLIGHT_BUTTON:
-		Serial.println("Backlight Button");
-		if (isBacklightOn)
-			backlightOff();
+		if (!isDoorMoving)
+			doorMove();
 		else
-			backlightOn();
+			doorStop();
+		break;
+	case DOOR_UPPER_LIMIT_BUTTON:
+		Serial.println("Door Upper Limit Button");
+		if (isDoorMoving && doorDirection) { // if door moving up
+			doorStop();
+		}
+		isDoorUp = true;
+		Serial.println("Door is " + (String)((isDoorMoving) ? "moving" : "not moving"));
+		break;
+	case DOOR_LOWER_LIMIT_BUTTON:
+		Serial.println("Door lower Limit Button");
+		if (isDoorMoving && !doorDirection) { // if door moving down
+			doorStop();
+		}
+		isDoorDown = true;
+		Serial.println("Door is " + (String)((isDoorMoving) ? "moving" : "not moving"));
 		break;
 	case INTERIOR_LIGHT_BUTTON:
 		Serial.println("Interior Light Button");
@@ -164,7 +170,6 @@ void processButton(int button) {
 			interiorLightOff();
 		else
 			interiorLightOn();
-		backlightOn();
 		break;
 	case FAN_BUTTON:
 		Serial.println("Fan Button");
@@ -173,12 +178,12 @@ void processButton(int button) {
 		else
 			fanOn();
 		fanLock = true;
-		backlightOn();
 		break;
 	default:
 		// nothing
 		break;
 	}
+	Serial.println(" ");
 }
 
 int displayLCD() { // int intTemp, int extTemp) {
@@ -211,7 +216,7 @@ void runTimed() {
 	interiorTemperature = readTemperature(THERMISTOR_INTERIOR_PIN);
 	exteriorTemperature = readTemperature(THERMISTOR_EXTERIOR_PIN);
 	displayLCD();
-	debugPrint();
+	//debugPrint();
 	//Serial.println("");
 	if (isBacklightOn && backlightCounter > BACKLIGHT_ON_TIME) {
 		backlightOff();
@@ -256,23 +261,24 @@ void doorStop() {
 	digitalWrite(DOOR_DN_PIN, HIGH);
 	Serial.println("Door Stop");
 	displayLCD();
+	isDoorMoving = false;
 
 	doorDirection = !doorDirection;
 }
 
-void doorMove() {
+void doorMove() { // default direction
 	digitalWrite(DOOR_UP_PIN, doorDirection);
 	digitalWrite(DOOR_DN_PIN, !doorDirection);
-	isDoorUp = doorDirection;
+	isDoorMoving = true;
+	isDoorUp = false;
+	isDoorDown = false;
 	doorLock = (!isDoorUp && isDaylight);
 	Serial.println("Door Moving: " + (String)((doorDirection) ? "Up" : "Down"));
 }
 
-void doorMove(boolean direction) {
+void doorMove(boolean direction) { // force a direction
 	doorDirection = direction;
 	doorMove();
-	delay(500);
-	doorStop();
 }
 
 int getTempLCDPosition(int temp, int offset) {
@@ -283,7 +289,6 @@ int getTempLCDPosition(int temp, int offset) {
 }
 
 float getTempFromResistance(float resistance) {
-
 	steinhart = resistance / THERMISTORNOMINAL;     // (R/Ro)
 	steinhart = log(steinhart);                  // ln(R/Ro)
 	steinhart /= BCOEFFICIENT;                   // 1/B * ln(R/Ro)
